@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -278,6 +279,13 @@ pub struct AppSettings {
     #[serde(default)]
     pub skill_storage_location: SkillStorageLocation,
 
+    /// GitLab Personal Access Token，按 host 全局共享
+    ///
+    /// 例如 `{"gitlab.corp.com": "glpat-xxxxxx"}`。
+    /// 仅在 Skills 拉取私有 GitLab 仓库时通过 `PRIVATE-TOKEN` 头注入。
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub gitlab_tokens: HashMap<String, String>,
+
     // ===== WebDAV 同步设置 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webdav_sync: Option<WebDavSyncSettings>,
@@ -346,6 +354,7 @@ impl Default for AppSettings {
             current_provider_hermes: None,
             skill_sync_method: SyncMethod::default(),
             skill_storage_location: SkillStorageLocation::default(),
+            gitlab_tokens: HashMap::new(),
             webdav_sync: None,
             webdav_backup: None,
             backup_interval_hours: None,
@@ -525,6 +534,12 @@ pub fn get_settings_for_frontend() -> AppSettings {
         sync.password.clear();
     }
     settings.webdav_backup = None;
+    // 把 GitLab Token 替换为占位符，避免明文回传前端；前端通过专用命令编辑。
+    for value in settings.gitlab_tokens.values_mut() {
+        if !value.is_empty() {
+            *value = "********".to_string();
+        }
+    }
     settings
 }
 
@@ -718,6 +733,68 @@ pub fn set_skill_storage_location(location: SkillStorageLocation) -> Result<(), 
     mutate_settings(|s| {
         s.skill_storage_location = location;
     })
+}
+
+// ===== GitLab Token 管理函数 =====
+
+/// 获取所有 GitLab Token 配置（仅前端使用，密钥已替换为占位符版本应由调用方处理）
+pub fn get_gitlab_tokens() -> HashMap<String, String> {
+    settings_store()
+        .read()
+        .unwrap_or_else(|e| {
+            log::warn!("设置锁已毒化，使用恢复值: {e}");
+            e.into_inner()
+        })
+        .gitlab_tokens
+        .clone()
+}
+
+/// 获取所有 GitLab Token 配置，但 Token 替换为掩码（用于前端展示）
+pub fn get_gitlab_tokens_masked() -> HashMap<String, String> {
+    let mut tokens = get_gitlab_tokens();
+    for value in tokens.values_mut() {
+        if !value.is_empty() {
+            *value = "********".to_string();
+        }
+    }
+    tokens
+}
+
+/// 获取指定 host 的 GitLab Token（明文，仅后端 HTTP 请求使用）
+pub fn get_gitlab_token_for_host(host: &str) -> Option<String> {
+    let normalized = host.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+    let tokens = settings_store().read().ok()?.gitlab_tokens.clone();
+    // host 大小写不敏感匹配
+    tokens
+        .into_iter()
+        .find(|(k, _)| k.trim().to_ascii_lowercase() == normalized)
+        .map(|(_, v)| v)
+        .filter(|v| !v.trim().is_empty())
+}
+
+/// 设置/更新单个 host 的 GitLab Token；token 为 None 或空字符串时删除该条目
+pub fn set_gitlab_token(host: &str, token: Option<&str>) -> Result<(), AppError> {
+    let host = host.trim().to_string();
+    if host.is_empty() {
+        return Err(AppError::Config("GitLab host 不能为空".to_string()));
+    }
+    let token_owned = token.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    mutate_settings(|s| match token_owned {
+        Some(value) => {
+            s.gitlab_tokens.insert(host.clone(), value);
+        }
+        None => {
+            s.gitlab_tokens.remove(&host);
+        }
+    })
+}
+
+/// 删除指定 host 的 GitLab Token
+pub fn remove_gitlab_token(host: &str) -> Result<(), AppError> {
+    set_gitlab_token(host, None)
 }
 
 // ===== 备份策略管理函数 =====

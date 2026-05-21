@@ -5,9 +5,14 @@
 use super::DeepLinkImportRequest;
 use crate::error::AppError;
 use crate::services::skill::SkillRepo;
+use crate::services::skill_provider::detect_from_url;
 use crate::store::AppState;
 
 /// Import a skill from deep link request
+///
+/// `repo` 字段同时接受两种形式：
+/// - 旧 GitHub 兼容：`owner/name`
+/// - 新通用形式：完整 URL，如 `https://gitlab.corp.com/dept/team/proj`
 pub fn import_skill_from_deeplink(
     state: &AppState,
     request: DeepLinkImportRequest,
@@ -25,17 +30,15 @@ pub fn import_skill_from_deeplink(
         .repo
         .ok_or_else(|| AppError::InvalidInput("Missing 'repo' field for skill".to_string()))?;
 
-    let parts: Vec<&str> = repo_str.split('/').collect();
-    if parts.len() != 2 {
-        return Err(AppError::InvalidInput(format!(
-            "Invalid repo format: expected 'owner/name', got '{repo_str}'"
-        )));
-    }
-    let owner = parts[0].to_string();
-    let name = parts[1].to_string();
+    let (host, provider, owner, name) = detect_from_url(repo_str.trim()).ok_or_else(|| {
+        AppError::InvalidInput(format!(
+            "Invalid repo format: expected 'owner/name' or full Git URL, got '{repo_str}'"
+        ))
+    })?;
 
-    // Create SkillRepo
     let repo = SkillRepo {
+        host: host.clone(),
+        provider,
         owner: owner.clone(),
         name: name.clone(),
         branch: request.branch.unwrap_or_else(|| "main".to_string()),
@@ -45,7 +48,7 @@ pub fn import_skill_from_deeplink(
     // Save using Database
     state.db.save_skill_repo(&repo)?;
 
-    log::info!("Successfully added skill repo '{owner}/{name}'");
+    log::info!("Successfully added skill repo '{host}/{owner}/{name}'");
 
     Ok(format!("{owner}/{name}"))
 }

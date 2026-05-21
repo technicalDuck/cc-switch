@@ -50,7 +50,11 @@ pub use mcp::{
 };
 pub use provider::{Provider, ProviderMeta};
 pub use services::{
-    skill::{migrate_skills_to_ssot, ImportSkillSelection},
+    skill::{migrate_skills_to_ssot, ImportSkillSelection, SkillRepo},
+    skill_provider::{
+        detect_from_url, resolve_provider, resolve_provider_by_id, GitHostProvider,
+        GithubProvider, GitlabProvider,
+    },
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
     SkillService, SpeedtestService,
 };
@@ -1192,6 +1196,10 @@ pub fn run() {
             commands::add_skill_repo,
             commands::remove_skill_repo,
             commands::install_skills_from_zip,
+            // GitLab Token 配置
+            commands::get_gitlab_tokens,
+            commands::set_gitlab_token,
+            commands::remove_gitlab_token,
             // Auto launch
             commands::set_auto_launch,
             commands::get_auto_launch_status,

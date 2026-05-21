@@ -35,6 +35,7 @@ import type {
   SkillsShDiscoverableSkill,
 } from "@/lib/api/skills";
 import { formatSkillError } from "@/lib/errors/skillErrorParser";
+import { skillMatchesRepo } from "@/lib/utils/repoUrl";
 
 interface SkillsPageProps {
   initialApp?: AppId;
@@ -246,12 +247,7 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
         // Await discovery so we can report the real count
         const { data: freshSkills } = await refetchDiscoverable();
         const count =
-          freshSkills?.filter(
-            (s) =>
-              s.repoOwner === repo.owner &&
-              s.repoName === repo.name &&
-              (s.repoBranch || "main") === (repo.branch || "main"),
-          ).length ?? 0;
+          freshSkills?.filter((s) => skillMatchesRepo(s, repo)).length ?? 0;
         toast.success(
           t("skills.repo.addSuccess", {
             owner: repo.owner,
@@ -267,9 +263,13 @@ export const SkillsPage = forwardRef<SkillsPageHandle, SkillsPageProps>(
       }
     };
 
-    const handleRemoveRepo = async (owner: string, name: string) => {
+    const handleRemoveRepo = async (
+      owner: string,
+      name: string,
+      host?: string,
+    ) => {
       try {
-        await removeRepoMutation.mutateAsync({ owner, name });
+        await removeRepoMutation.mutateAsync({ owner, name, host });
         toast.success(t("skills.repo.removeSuccess", { owner, name }), {
           closeButton: true,
         });

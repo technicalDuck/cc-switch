@@ -299,6 +299,9 @@ pub fn get_skill_repos(app_state: State<'_, AppState>) -> Result<Vec<SkillRepo>,
 }
 
 /// 添加技能仓库
+///
+/// `SkillRepo` 现在带有 `host` / `provider` 字段；前端旧版本省略时，
+/// serde 默认会回填为 `github.com` / `github`，保持向后兼容。
 #[tauri::command]
 pub fn add_skill_repo(repo: SkillRepo, app_state: State<'_, AppState>) -> Result<bool, String> {
     app_state
@@ -309,15 +312,18 @@ pub fn add_skill_repo(repo: SkillRepo, app_state: State<'_, AppState>) -> Result
 }
 
 /// 删除技能仓库
+///
+/// `host` 可选；旧前端仅传 owner/name 时按 host=None 处理，DAO 会删除所有 host 下匹配 owner/name 的行。
 #[tauri::command]
 pub fn remove_skill_repo(
     owner: String,
     name: String,
+    host: Option<String>,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {
     app_state
         .db
-        .delete_skill_repo(&owner, &name)
+        .delete_skill_repo(host.as_deref(), &owner, &name)
         .map_err(|e| e.to_string())?;
     Ok(true)
 }
@@ -333,4 +339,28 @@ pub fn install_skills_from_zip(
     let path = std::path::Path::new(&file_path);
 
     SkillService::install_from_zip(&app_state.db, path, &app_type).map_err(|e| e.to_string())
+}
+
+// ========== GitLab Token 配置 ==========
+
+/// 获取所有 GitLab Token 配置（已掩码，仅展示 host 列表与是否已配置）
+#[tauri::command]
+pub fn get_gitlab_tokens() -> Result<std::collections::HashMap<String, String>, String> {
+    Ok(crate::settings::get_gitlab_tokens_masked())
+}
+
+/// 设置某个 GitLab host 的 Personal Access Token
+///
+/// `token` 传入 `null` 或空字符串时表示删除该 host 的配置。
+#[tauri::command]
+pub fn set_gitlab_token(host: String, token: Option<String>) -> Result<bool, String> {
+    crate::settings::set_gitlab_token(&host, token.as_deref()).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// 删除某个 GitLab host 的 Personal Access Token
+#[tauri::command]
+pub fn remove_gitlab_token(host: String) -> Result<bool, String> {
+    crate::settings::remove_gitlab_token(&host).map_err(|e| e.to_string())?;
+    Ok(true)
 }

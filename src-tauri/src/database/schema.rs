@@ -79,13 +79,15 @@ impl Database {
             PRIMARY KEY (id, app_type)
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 5. Skills 表（v3.10.0+ 统一结构）
+        // 5. Skills 表（v3.10.0+ 统一结构；v11+ 增加 repo_host / repo_provider 支持 GitLab）
         conn.execute(
             "CREATE TABLE IF NOT EXISTS skills (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             description TEXT,
             directory TEXT NOT NULL,
+            repo_host TEXT,
+            repo_provider TEXT,
             repo_owner TEXT,
             repo_name TEXT,
             repo_branch TEXT DEFAULT 'main',
@@ -103,11 +105,16 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 6. Skill Repos 表
+        // 6. Skill Repos 表（v11+ 增加 host / provider，主键改为 (host, owner, name)）
         conn.execute(
             "CREATE TABLE IF NOT EXISTS skill_repos (
-            owner TEXT NOT NULL, name TEXT NOT NULL, branch TEXT NOT NULL DEFAULT 'main',
-            enabled BOOLEAN NOT NULL DEFAULT 1, PRIMARY KEY (owner, name)
+            host TEXT NOT NULL DEFAULT 'github.com',
+            provider TEXT NOT NULL DEFAULT 'github',
+            owner TEXT NOT NULL,
+            name TEXT NOT NULL,
+            branch TEXT NOT NULL DEFAULT 'main',
+            enabled BOOLEAN NOT NULL DEFAULT 1,
+            PRIMARY KEY (host, owner, name)
         )",
             [],
         )
@@ -430,6 +437,11 @@ impl Database {
                         log::info!("迁移数据库从 v9 到 v10（添加 Hermes Agent 支持）");
                         Self::migrate_v9_to_v10(conn)?;
                         Self::set_user_version(conn, 10)?;
+                    }
+                    10 => {
+                        log::info!("迁移数据库从 v10 到 v11（Skills 支持 GitLab / 自托管 Git 主机）");
+                        Self::migrate_v10_to_v11(conn)?;
+                        Self::set_user_version(conn, 11)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1197,6 +1209,80 @@ impl Database {
         }
 
         log::info!("v9 -> v10 迁移完成：已添加 Hermes Agent 支持");
+        Ok(())
+    }
+
+    /// v10 -> v11 迁移：Skills 支持 GitLab / 自托管 Git 主机
+    ///
+    /// 1. 给 `skills` 表新增 `repo_host` / `repo_provider` 两个列（旧仓库默认 github.com / github）
+    /// 2. 重建 `skill_repos` 表：新增 `host` / `provider` 列，并把主键改为 `(host, owner, name)`，
+    ///    旧数据按 github.com / github 回填
+    fn migrate_v10_to_v11(conn: &Connection) -> Result<(), AppError> {
+        // ---- skills 表：增列即可，已有行的 repo_host / repo_provider 留空表示 GitHub ----
+        if Self::table_exists(conn, "skills")? {
+            Self::add_column_if_missing(conn, "skills", "repo_host", "TEXT")?;
+            Self::add_column_if_missing(conn, "skills", "repo_provider", "TEXT")?;
+            // 对已有“有 repo_owner 但 host/provider 为空”的行回填 GitHub
+            conn.execute(
+                "UPDATE skills SET repo_host = 'github.com'
+                 WHERE repo_host IS NULL AND repo_owner IS NOT NULL",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("回填 skills.repo_host 失败: {e}")))?;
+            conn.execute(
+                "UPDATE skills SET repo_provider = 'github'
+                 WHERE repo_provider IS NULL AND repo_owner IS NOT NULL",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("回填 skills.repo_provider 失败: {e}")))?;
+        }
+
+        // ---- skill_repos 表：SQLite 修改主键需要重建表 ----
+        if !Self::table_exists(conn, "skill_repos")? {
+            return Ok(());
+        }
+
+        // 已经是新结构则跳过
+        if Self::has_column(conn, "skill_repos", "host")?
+            && Self::has_column(conn, "skill_repos", "provider")?
+        {
+            log::info!("skill_repos 已是 v11 结构，跳过迁移");
+            return Ok(());
+        }
+
+        log::info!("开始重建 skill_repos 表为 v11 结构...");
+
+        conn.execute("DROP TABLE IF EXISTS skill_repos_new", [])
+            .map_err(|e| AppError::Database(format!("删除临时表 skill_repos_new 失败: {e}")))?;
+
+        conn.execute(
+            "CREATE TABLE skill_repos_new (
+                host TEXT NOT NULL DEFAULT 'github.com',
+                provider TEXT NOT NULL DEFAULT 'github',
+                owner TEXT NOT NULL,
+                name TEXT NOT NULL,
+                branch TEXT NOT NULL DEFAULT 'main',
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                PRIMARY KEY (host, owner, name)
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建新 skill_repos 表失败: {e}")))?;
+
+        // 把旧数据按 github.com / github 回填进新表（如有同名行则用 OR IGNORE 跳过）
+        conn.execute(
+            "INSERT OR IGNORE INTO skill_repos_new (host, provider, owner, name, branch, enabled)
+             SELECT 'github.com', 'github', owner, name, branch, enabled FROM skill_repos",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("迁移 skill_repos 数据失败: {e}")))?;
+
+        conn.execute("DROP TABLE skill_repos", [])
+            .map_err(|e| AppError::Database(format!("删除旧 skill_repos 表失败: {e}")))?;
+        conn.execute("ALTER TABLE skill_repos_new RENAME TO skill_repos", [])
+            .map_err(|e| AppError::Database(format!("重命名 skill_repos 表失败: {e}")))?;
+
+        log::info!("v10 -> v11 迁移完成：skill_repos 已新增 host/provider 列，主键改为 (host, owner, name)");
         Ok(())
     }
 

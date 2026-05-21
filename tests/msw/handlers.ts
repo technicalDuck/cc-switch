@@ -306,6 +306,11 @@ export const handlers = [
     success("/mock/export-settings.json"),
   ),
 
+  // GitLab Token settings: empty by default; tests can override per-test
+  http.post(`${TAURI_ENDPOINT}/get_gitlab_tokens`, () => success({})),
+  http.post(`${TAURI_ENDPOINT}/set_gitlab_token`, () => success(true)),
+  http.post(`${TAURI_ENDPOINT}/remove_gitlab_token`, () => success(true)),
+
   // Sync current providers live (no-op success)
   http.post(`${TAURI_ENDPOINT}/sync_current_providers_live`, () =>
     success({ success: true }),

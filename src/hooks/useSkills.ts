@@ -247,8 +247,15 @@ export function useAddSkillRepo() {
 export function useRemoveSkillRepo() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ owner, name }: { owner: string; name: string }) =>
-      skillsApi.removeRepo(owner, name),
+    mutationFn: ({
+      owner,
+      name,
+      host,
+    }: {
+      owner: string;
+      name: string;
+      host?: string;
+    }) => skillsApi.removeRepo(owner, name, host),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["skills", "repos"] });
       queryClient.invalidateQueries({ queryKey: ["skills", "discoverable"] });

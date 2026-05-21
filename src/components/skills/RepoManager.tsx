@@ -13,6 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Trash2, ExternalLink, Plus } from "lucide-react";
 import { settingsApi } from "@/lib/api";
 import type { DiscoverableSkill, SkillRepo } from "@/lib/api/skills";
+import {
+  parseRepoUrl,
+  buildRepoWebUrl,
+  skillMatchesRepo,
+} from "@/lib/utils/repoUrl";
 
 interface RepoManagerProps {
   open: boolean;
@@ -20,7 +25,7 @@ interface RepoManagerProps {
   repos: SkillRepo[];
   skills: DiscoverableSkill[];
   onAdd: (repo: SkillRepo) => Promise<void>;
-  onRemove: (owner: string, name: string) => Promise<void>;
+  onRemove: (owner: string, name: string, host?: string) => Promise<void>;
 }
 
 export function RepoManager({
@@ -37,32 +42,7 @@ export function RepoManager({
   const [error, setError] = useState("");
 
   const getSkillCount = (repo: SkillRepo) =>
-    skills.filter(
-      (skill) =>
-        skill.repoOwner === repo.owner &&
-        skill.repoName === repo.name &&
-        (skill.repoBranch || "main") === (repo.branch || "main"),
-    ).length;
-
-  const parseRepoUrl = (
-    url: string,
-  ): { owner: string; name: string } | null => {
-    // 支持格式:
-    // - https://github.com/owner/name
-    // - owner/name
-    // - https://github.com/owner/name.git
-
-    let cleaned = url.trim();
-    cleaned = cleaned.replace(/^https?:\/\/github\.com\//, "");
-    cleaned = cleaned.replace(/\.git$/, "");
-
-    const parts = cleaned.split("/");
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      return { owner: parts[0], name: parts[1] };
-    }
-
-    return null;
-  };
+    skills.filter((skill) => skillMatchesRepo(skill, repo)).length;
 
   const handleAdd = async () => {
     setError("");
@@ -75,6 +55,8 @@ export function RepoManager({
 
     try {
       await onAdd({
+        host: parsed.host,
+        provider: parsed.provider,
         owner: parsed.owner,
         name: parsed.name,
         branch: branch || "main",
@@ -88,9 +70,9 @@ export function RepoManager({
     }
   };
 
-  const handleOpenRepo = async (owner: string, name: string) => {
+  const handleOpenRepo = async (repo: SkillRepo) => {
     try {
-      await settingsApi.openExternal(`https://github.com/${owner}/${name}`);
+      await settingsApi.openExternal(buildRepoWebUrl(repo));
     } catch (error) {
       console.error("Failed to open URL:", error);
     }
@@ -152,12 +134,23 @@ export function RepoManager({
                 <div className="space-y-3">
                   {repos.map((repo) => (
                     <div
-                      key={`${repo.owner}/${repo.name}`}
+                      key={`${repo.host || "github.com"}/${repo.owner}/${repo.name}`}
                       className="flex items-center justify-between rounded-xl border border-border-default bg-card px-4 py-3"
                     >
                       <div>
-                        <div className="text-sm font-medium text-foreground">
-                          {repo.owner}/{repo.name}
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <span>
+                            {repo.owner}/{repo.name}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-normal ${
+                              repo.provider === "gitlab"
+                                ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {repo.host || "github.com"}
+                          </span>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {t("skills.repo.branch")}: {repo.branch || "main"}
@@ -173,7 +166,7 @@ export function RepoManager({
                           variant="ghost"
                           size="icon"
                           type="button"
-                          onClick={() => handleOpenRepo(repo.owner, repo.name)}
+                          onClick={() => handleOpenRepo(repo)}
                           title={t("common.view", { defaultValue: "查看" })}
                         >
                           <ExternalLink className="h-4 w-4" />
@@ -182,7 +175,9 @@ export function RepoManager({
                           variant="ghost"
                           size="icon"
                           type="button"
-                          onClick={() => onRemove(repo.owner, repo.name)}
+                          onClick={() =>
+                            onRemove(repo.owner, repo.name, repo.host)
+                          }
                           title={t("common.delete")}
                           className="hover:text-red-500 hover:bg-red-100 dark:hover:text-red-400 dark:hover:bg-red-500/10"
                         >

@@ -141,6 +141,11 @@ vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),
   },
+  skillsApi: {
+    getGitlabTokens: vi.fn().mockResolvedValue({}),
+    setGitlabToken: vi.fn().mockResolvedValue(true),
+    removeGitlabToken: vi.fn().mockResolvedValue(true),
+  },
 }));
 
 const TabsContext = createContext<{

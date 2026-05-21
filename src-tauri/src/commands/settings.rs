@@ -21,6 +21,19 @@ fn merge_settings_for_save(
         }
         _ => {}
     }
+
+    // GitLab Token：前端拿到的是掩码 "********"，原样回写会覆盖真实 Token。
+    // 这里只接受真正变化的条目（值不是占位符，且非空），其它一律保留现有值。
+    // 新增/更新建议通过专门命令 set_gitlab_token，避免与通用 save_settings 混用。
+    let mut merged_tokens = existing.gitlab_tokens.clone();
+    for (host, value) in incoming.gitlab_tokens.drain() {
+        if value == "********" || value.is_empty() {
+            continue;
+        }
+        merged_tokens.insert(host, value);
+    }
+    incoming.gitlab_tokens = merged_tokens;
+
     incoming
 }
 

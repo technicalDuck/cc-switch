@@ -37,6 +37,7 @@ function getErrorI18nKey(code: string): string {
     SKILL_DIR_NOT_FOUND: "skills.error.skillDirNotFound",
     SKILL_DIRECTORY_CONFLICT: "skills.error.directoryConflict",
     EMPTY_ARCHIVE: "skills.error.emptyArchive",
+    INVALID_ARCHIVE: "skills.error.invalidArchive",
     GET_HOME_DIR_FAILED: "skills.error.getHomeDirFailed",
     NO_SKILLS_IN_ZIP: "skills.error.noSkillsInZip",
   };
@@ -56,6 +57,8 @@ function getSuggestionI18nKey(suggestion: string): string {
     checkPermission: "skills.error.suggestion.checkPermission",
     uninstallFirst: "skills.error.suggestion.uninstallFirst",
     checkZipContent: "skills.error.suggestion.checkZipContent",
+    checkGitlabToken: "skills.error.suggestion.checkGitlabToken",
+    http401: "skills.error.http401",
     http403: "skills.error.http403",
     http404: "skills.error.http404",
     http429: "skills.error.http429",

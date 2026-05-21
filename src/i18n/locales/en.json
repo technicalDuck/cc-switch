@@ -580,6 +580,22 @@
       "migrationSuccess": "Successfully migrated {{count}} skill(s)",
       "migrationPartial": "Migrated {{migrated}} skill(s), {{errors}} error(s). Check logs for details."
     },
+    "gitlabTokens": {
+      "title": "GitLab Personal Access Tokens",
+      "description": "Configure PATs for self-hosted GitLab instances. Tokens are injected via the PRIVATE-TOKEN header when fetching skills and stored per host.",
+      "empty": "No GitLab tokens configured. Use the button below to add one.",
+      "addRow": "Add Token",
+      "hostLabel": "GitLab Host",
+      "tokenLabel": "Token",
+      "tokenPlaceholder": "Paste a Personal Access Token",
+      "hostRequired": "Please enter a GitLab host",
+      "tokenRequired": "Please enter a valid token",
+      "saveSuccess": "Token saved for {{host}}",
+      "saveFailed": "Failed to save token",
+      "removeSuccess": "Token removed for {{host}}",
+      "removeFailed": "Failed to remove token",
+      "loadFailed": "Failed to load GitLab tokens"
+    },
     "skillSync": {
       "title": "Skill Sync Method",
       "description": "Choose how to sync Skills files",
@@ -1879,10 +1895,12 @@
       "skillDirNotFound": "Skill directory not found: {{path}}",
       "directoryConflict": "Skill directory '{{directory}}' is already occupied by {{existing_repo}}, cannot install from {{new_repo}}",
       "emptyArchive": "Downloaded archive is empty",
+      "invalidArchive": "Downloaded content is not a valid ZIP (possibly a GitLab login page). Check your token permissions and host settings.",
       "downloadFailed": "Download failed: HTTP {{status}}",
       "allBranchesFailed": "All branches failed, tried: {{branches}}",
       "httpError": "HTTP error {{status}}",
-      "http403": "GitHub access restricted, possibly rate limited",
+      "http401": "Git repository authentication failed; check the GitLab Token for this host in Settings",
+      "http403": "Git repository access restricted: token permission missing or rate limit hit",
       "http404": "Repository or branch not found, please check URL",
       "http429": "Too many requests, please wait and retry",
       "parseMetadataFailed": "Failed to parse skill metadata",
@@ -1899,14 +1917,15 @@
         "checkDiskSpace": "Please check disk space",
         "checkPermission": "Please check directory permissions",
         "uninstallFirst": "Please uninstall the existing skill with the same name first",
-        "checkZipContent": "Please verify the ZIP file contains valid skill directories (with SKILL.md files)"
+        "checkZipContent": "Please verify the ZIP file contains valid skill directories (with SKILL.md files)",
+        "checkGitlabToken": "Configure a Personal Access Token for this GitLab host in Settings"
       }
     },
     "repo": {
       "title": "Manage Skill Repositories",
-      "description": "Add or remove GitHub skill repository sources",
+      "description": "Add or remove Git skill repository sources (GitHub & self-hosted GitLab)",
       "url": "Repository URL",
-      "urlPlaceholder": "owner/name or https://github.com/owner/name",
+      "urlPlaceholder": "owner/name or https://gitlab.example.com/group/sub/repo",
       "branch": "Branch",
       "branchPlaceholder": "main",
       "path": "Skills Path",

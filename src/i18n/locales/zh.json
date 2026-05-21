@@ -580,6 +580,22 @@
       "migrationSuccess": "已成功迁移 {{count}} 个技能",
       "migrationPartial": "迁移了 {{migrated}} 个技能，{{errors}} 个失败，请查看日志"
     },
+    "gitlabTokens": {
+      "title": "GitLab Personal Access Token",
+      "description": "为内网或自建 GitLab 实例配置 PAT，下载技能时将以 PRIVATE-TOKEN 请求头注入。Token 按 host 隔离存储。",
+      "empty": "尚未配置任何 GitLab Token，可使用下方按钮新增。",
+      "addRow": "新增 Token",
+      "hostLabel": "GitLab Host",
+      "tokenLabel": "Token",
+      "tokenPlaceholder": "粘贴 Personal Access Token",
+      "hostRequired": "请填写 GitLab host",
+      "tokenRequired": "请输入有效的 Token",
+      "saveSuccess": "已保存 {{host}} 的 Token",
+      "saveFailed": "保存失败",
+      "removeSuccess": "已删除 {{host}} 的 Token",
+      "removeFailed": "删除失败",
+      "loadFailed": "加载 GitLab Token 失败"
+    },
     "skillSync": {
       "title": "Skills 同步方式",
       "description": "选择 Skills 的文件同步策略",
@@ -1879,10 +1895,12 @@
       "skillDirNotFound": "技能目录不存在：{{path}}",
       "directoryConflict": "技能目录 '{{directory}}' 已被 {{existing_repo}} 占用，无法从 {{new_repo}} 安装",
       "emptyArchive": "下载的压缩包为空",
+      "invalidArchive": "下载内容不是有效的 ZIP 文件（可能是 GitLab 登录页），请检查 Token 权限与 host 配置",
       "downloadFailed": "下载失败：HTTP {{status}}",
       "allBranchesFailed": "所有分支下载失败，尝试了：{{branches}}",
       "httpError": "HTTP 错误 {{status}}",
-      "http403": "GitHub 访问受限，可能是请求频率过高",
+      "http401": "Git 仓库认证失败，请在设置中检查对应 host 的 GitLab Token",
+      "http403": "Git 仓库访问受限，可能是 Token 权限不足或请求频率过高",
       "http404": "仓库或分支不存在，请检查地址",
       "http429": "请求过于频繁，请等待后重试",
       "parseMetadataFailed": "解析技能元数据失败",
@@ -1899,14 +1917,15 @@
         "checkDiskSpace": "请检查磁盘空间",
         "checkPermission": "请检查目录权限",
         "uninstallFirst": "请先卸载已安装的同名技能",
-        "checkZipContent": "请确认 ZIP 文件包含有效的技能目录（含 SKILL.md 文件）"
+        "checkZipContent": "请确认 ZIP 文件包含有效的技能目录（含 SKILL.md 文件）",
+        "checkGitlabToken": "请在设置中为该 GitLab 实例配置 Personal Access Token"
       }
     },
     "repo": {
       "title": "管理技能仓库",
-      "description": "添加或删除 GitHub 技能仓库源",
+      "description": "添加或删除 Git 技能仓库源（支持 GitHub 与自建 GitLab）",
       "url": "仓库 URL",
-      "urlPlaceholder": "owner/name 或 https://github.com/owner/name",
+      "urlPlaceholder": "owner/name 或 https://gitlab.example.com/group/sub/repo",
       "branch": "分支",
       "branchPlaceholder": "main",
       "path": "技能路径",

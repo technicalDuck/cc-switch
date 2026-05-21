@@ -57,9 +57,15 @@ pub struct DiscoverableSkill {
     pub description: String,
     /// 目录名称 (安装路径的最后一段)
     pub directory: String,
-    /// GitHub README URL
+    /// README/文档 URL
     #[serde(rename = "readmeUrl")]
     pub readme_url: Option<String>,
+    /// Git 主机（"github.com" / "gitlab.corp.com"）；前端旧版可能没传，反序列化时默认 github.com
+    #[serde(rename = "repoHost", default = "default_host")]
+    pub repo_host: String,
+    /// 提供方标识（"github" / "gitlab"）
+    #[serde(rename = "repoProvider", default = "default_provider")]
+    pub repo_provider: String,
     /// 仓库所有者
     #[serde(rename = "repoOwner")]
     pub repo_owner: String,
@@ -98,10 +104,25 @@ pub struct Skill {
     pub repo_branch: Option<String>,
 }
 
-/// 仓库配置
+/// 仓库提供方（GitHub / GitLab / 后续可扩展）
+fn default_host() -> String {
+    "github.com".to_string()
+}
+
+fn default_provider() -> String {
+    "github".to_string()
+}
+
+/// 仓库配置（v11+ 支持 GitLab 等多种 Git 主机）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillRepo {
-    /// GitHub 用户/组织名
+    /// Git 主机名（如 "github.com" 或 "gitlab.corp.com"）；旧数据缺省回退到 "github.com"
+    #[serde(default = "default_host")]
+    pub host: String,
+    /// 提供方标识："github" | "gitlab"
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    /// 用户/组织名；GitLab 嵌套 group 用 '/' 分隔（如 "dept/team"）
     pub owner: String,
     /// 仓库名称
     pub name: String,
@@ -136,24 +157,32 @@ impl Default for SkillStore {
             skills: HashMap::new(),
             repos: vec![
                 SkillRepo {
+                    host: default_host(),
+                    provider: default_provider(),
                     owner: "anthropics".to_string(),
                     name: "skills".to_string(),
                     branch: "main".to_string(),
                     enabled: true,
                 },
                 SkillRepo {
+                    host: default_host(),
+                    provider: default_provider(),
                     owner: "ComposioHQ".to_string(),
                     name: "awesome-claude-skills".to_string(),
                     branch: "master".to_string(),
                     enabled: true,
                 },
                 SkillRepo {
+                    host: default_host(),
+                    provider: default_provider(),
                     owner: "cexll".to_string(),
                     name: "myclaude".to_string(),
                     branch: "master".to_string(),
                     enabled: true,
                 },
                 SkillRepo {
+                    host: default_host(),
+                    provider: default_provider(),
                     owner: "JimLiu".to_string(),
                     name: "baoyu-skills".to_string(),
                     branch: "main".to_string(),
@@ -240,6 +269,10 @@ pub struct SkillsShDiscoverableSkill {
     pub key: String,
     pub name: String,
     pub directory: String,
+    #[serde(default = "default_host")]
+    pub repo_host: String,
+    #[serde(default = "default_provider")]
+    pub repo_provider: String,
     pub repo_owner: String,
     pub repo_name: String,
     pub repo_branch: String,
@@ -310,6 +343,10 @@ struct AgentsLockSkill {
 
 #[derive(Debug, Clone)]
 struct LockRepoInfo {
+    /// 主机名（默认 "github.com"，GitLab 为实际 host）
+    host: String,
+    /// provider 标识（"github" | "gitlab"）
+    provider: String,
     owner: String,
     repo: String,
     skill_path: Option<String>,
@@ -334,7 +371,17 @@ fn parse_branch_from_source_url(source_url: Option<&str>) -> Option<String> {
         return None;
     }
 
-    // 支持 https://github.com/owner/repo/tree/<branch>/...
+    // 优先匹配 GitLab 的 `/-/tree/<branch>/...`（避免被下面通用规则截断 `-`）
+    if let Some((_, after_tree)) = source_url.split_once("/-/tree/") {
+        let branch = after_tree
+            .split('/')
+            .next()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+        return Some(branch.to_string());
+    }
+
+    // GitHub: https://github.com/owner/repo/tree/<branch>/...
     if let Some((_, after_tree)) = source_url.split_once("/tree/") {
         let branch = after_tree
             .split('/')
@@ -411,18 +458,34 @@ fn parse_agents_lock() -> HashMap<String, LockRepoInfo> {
         .into_iter()
         .filter_map(|(name, skill)| {
             let source = skill.source?;
-            if skill.source_type.as_deref() != Some("github") {
-                return None;
-            }
-            let (owner, repo) = source.split_once('/')?;
+            // 同时接受 GitHub 与 GitLab；未填 source_type 时按 GitHub 处理（兼容旧 lock 文件）
+            let source_type = skill.source_type.as_deref().unwrap_or("github");
+            let (provider, default_host) = match source_type {
+                "github" => ("github", "github.com"),
+                "gitlab" => ("gitlab", "gitlab.com"),
+                _ => return None,
+            };
+
+            // GitLab 嵌套 group 形如 `dept/team/proj`，rsplit_once 拿到最后一段作为 repo
+            let (owner_raw, repo_raw) = source.rsplit_once('/')?;
+            // 优先从 source_url 取真实 host（如 self-hosted gitlab.corp.com）
+            let host = skill
+                .source_url
+                .as_deref()
+                .and_then(|u| url::Url::parse(u).ok())
+                .and_then(|u| u.host_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| default_host.to_string());
+
             let branch = normalize_optional_branch(skill.branch)
                 .or_else(|| normalize_optional_branch(skill.source_branch))
                 .or_else(|| parse_branch_from_source_url(skill.source_url.as_deref()));
             Some((
                 name,
                 LockRepoInfo {
-                    owner: owner.to_string(),
-                    repo: repo.to_string(),
+                    host,
+                    provider: provider.to_string(),
+                    owner: owner_raw.to_string(),
+                    repo: repo_raw.to_string(),
                     skill_path: skill.skill_path,
                     branch,
                 },
@@ -430,7 +493,7 @@ fn parse_agents_lock() -> HashMap<String, LockRepoInfo> {
         })
         .collect();
     log::info!(
-        "agents lock 文件解析完成，共识别 {} 个 github skill",
+        "agents lock 文件解析完成，共识别 {} 个 git skill",
         parsed.len()
     );
     parsed
@@ -452,13 +515,30 @@ impl SkillService {
     }
 
     /// 构建 Skill 文档 URL（指向仓库中的 SKILL.md 文件）
+    ///
+    /// 旧签名（按 owner/repo 拼 github URL）保留下来当作 GitHub 默认值，
+    /// 新代码应优先调用 [`Self::build_skill_doc_url_for_repo`]，按 host/provider 走 provider 抽象。
     fn build_skill_doc_url(owner: &str, repo: &str, branch: &str, doc_path: &str) -> String {
         format!("https://github.com/{owner}/{repo}/blob/{branch}/{doc_path}")
     }
 
-    /// 从旧 readme_url 中提取仓库内文档路径，兼容 `blob`/`tree` 两种格式
+    /// 通用版本：基于 SkillRepo 的 host/provider 构建文档 URL
+    pub(crate) fn build_skill_doc_url_for_repo(
+        repo: &SkillRepo,
+        branch: &str,
+        doc_path: &str,
+    ) -> String {
+        crate::services::skill_provider::resolve_provider(repo).blob_url(repo, branch, doc_path)
+    }
+
+    /// 从旧 readme_url 中提取仓库内文档路径，兼容 `blob` / `tree` / GitLab `-/blob` / `-/tree` 四种格式
     fn extract_doc_path_from_url(url: &str) -> Option<String> {
-        let marker = if url.contains("/blob/") {
+        // 优先匹配 GitLab 的 `/-/blob/` `/-/tree/`，避免被通用规则误命中
+        let marker = if url.contains("/-/blob/") {
+            "/-/blob/"
+        } else if url.contains("/-/tree/") {
+            "/-/tree/"
+        } else if url.contains("/blob/") {
             "/blob/"
         } else if url.contains("/tree/") {
             "/tree/"
@@ -649,6 +729,8 @@ impl SkillService {
         // 如果已存在则跳过下载
         if !dest.exists() {
             let repo = SkillRepo {
+                host: skill.repo_host.clone(),
+                provider: skill.repo_provider.clone(),
                 owner: skill.repo_owner.clone(),
                 name: skill.repo_name.clone(),
                 branch: skill.repo_branch.clone(),
@@ -731,9 +813,16 @@ impl SkillService {
             })
             .unwrap_or_else(|| format!("{}/SKILL.md", skill.directory.trim_end_matches('/')));
 
-        let readme_url = Some(Self::build_skill_doc_url(
-            &skill.repo_owner,
-            &skill.repo_name,
+        let repo_for_url = SkillRepo {
+            host: skill.repo_host.clone(),
+            provider: skill.repo_provider.clone(),
+            owner: skill.repo_owner.clone(),
+            name: skill.repo_name.clone(),
+            branch: repo_branch.clone(),
+            enabled: true,
+        };
+        let readme_url = Some(Self::build_skill_doc_url_for_repo(
+            &repo_for_url,
             &repo_branch,
             &doc_path,
         ));
@@ -754,6 +843,8 @@ impl SkillService {
                 Some(skill.description.clone())
             },
             directory: install_name.clone(),
+            repo_host: Some(skill.repo_host.clone()),
+            repo_provider: Some(skill.repo_provider.clone()),
             repo_owner: Some(skill.repo_owner.clone()),
             repo_name: Some(skill.repo_name.clone()),
             repo_branch: Some(repo_branch),
@@ -878,9 +969,10 @@ impl SkillService {
         let skills = db.get_all_installed_skills()?;
         let mut updates = Vec::new();
 
-        // 按 (owner, name, branch) 分组
-        let mut repo_groups: HashMap<(String, String, String), Vec<InstalledSkill>> =
-            HashMap::new();
+        // 按 (host, provider, owner, name, branch) 分组
+        // 不同 host 的同 owner/name 应分别下载（如 github.com/foo/bar 与 gitlab.corp.com/foo/bar）
+        type RepoKey = (String, String, String, String, String);
+        let mut repo_groups: HashMap<RepoKey, Vec<InstalledSkill>> = HashMap::new();
 
         for skill in skills.into_values() {
             let (owner, name, branch) =
@@ -889,16 +981,26 @@ impl SkillService {
                     (Some(o), Some(n), None) => (o.clone(), n.clone(), "main".to_string()),
                     _ => continue,
                 };
+            let host = skill
+                .repo_host
+                .clone()
+                .unwrap_or_else(|| "github.com".to_string());
+            let provider = skill
+                .repo_provider
+                .clone()
+                .unwrap_or_else(|| "github".to_string());
             repo_groups
-                .entry((owner, name, branch))
+                .entry((host, provider, owner, name, branch))
                 .or_default()
                 .push(skill);
         }
 
         let ssot_dir = Self::get_ssot_dir()?;
 
-        for ((owner, name, branch), group_skills) in &repo_groups {
+        for ((host, provider, owner, name, branch), group_skills) in &repo_groups {
             let repo = SkillRepo {
+                host: host.clone(),
+                provider: provider.clone(),
                 owner: owner.clone(),
                 name: name.clone(),
                 branch: branch.clone(),
@@ -1005,7 +1107,18 @@ impl SkillService {
             _ => return Err(anyhow!("Cannot update local skill: {skill_id}")),
         };
 
+        let host = skill
+            .repo_host
+            .clone()
+            .unwrap_or_else(|| "github.com".to_string());
+        let provider_id = skill
+            .repo_provider
+            .clone()
+            .unwrap_or_else(|| "github".to_string());
+
         let repo = SkillRepo {
+            host: host.clone(),
+            provider: provider_id.clone(),
             owner: owner.clone(),
             name: name.clone(),
             branch: branch.clone(),
@@ -1080,9 +1193,16 @@ impl SkillService {
             .as_deref()
             .and_then(Self::extract_doc_path_from_url)
             .unwrap_or_else(|| format!("{}/SKILL.md", skill.directory.trim_end_matches('/')));
-        let readme_url = Some(Self::build_skill_doc_url(
-            &owner,
-            &name,
+        let repo_for_url = SkillRepo {
+            host: host.clone(),
+            provider: provider_id.clone(),
+            owner: owner.clone(),
+            name: name.clone(),
+            branch: used_branch.clone(),
+            enabled: true,
+        };
+        let readme_url = Some(Self::build_skill_doc_url_for_repo(
+            &repo_for_url,
             &used_branch,
             &doc_path,
         ));
@@ -1092,6 +1212,8 @@ impl SkillService {
             name: new_name,
             description: new_description,
             directory: skill.directory.clone(),
+            repo_host: Some(host),
+            repo_provider: Some(provider_id),
             repo_owner: skill.repo_owner.clone(),
             repo_name: skill.repo_name.clone(),
             repo_branch: Some(used_branch),
@@ -1513,7 +1635,7 @@ impl SkillService {
             let apps = selection.apps;
 
             // 从 lock 文件提取仓库信息
-            let (id, repo_owner, repo_name, repo_branch, readme_url) =
+            let (id, repo_host, repo_provider, repo_owner, repo_name, repo_branch, readme_url) =
                 build_repo_info_from_lock(&agents_lock, &dir_name);
 
             // 计算内容哈希
@@ -1526,6 +1648,8 @@ impl SkillService {
                 name,
                 description,
                 directory: dir_name,
+                repo_host,
+                repo_provider,
                 repo_owner,
                 repo_name,
                 repo_branch,
@@ -2009,12 +2133,13 @@ impl SkillService {
             name: meta.name.unwrap_or_else(|| directory.to_string()),
             description: meta.description.unwrap_or_default(),
             directory: directory.to_string(),
-            readme_url: Some(Self::build_skill_doc_url(
-                &repo.owner,
-                &repo.name,
+            readme_url: Some(Self::build_skill_doc_url_for_repo(
+                repo,
                 &repo.branch,
                 doc_path,
             )),
+            repo_host: repo.host.clone(),
+            repo_provider: repo.provider.clone(),
             repo_owner: repo.owner.clone(),
             repo_name: repo.name.clone(),
             repo_branch: repo.branch.clone(),
@@ -2220,20 +2345,39 @@ impl SkillService {
             branches.push("master");
         }
 
+        let provider = crate::services::skill_provider::resolve_provider(repo);
+        // GitLab 等私有 Git 主机按 host 取 Token；GitHub 当前不需要 Token
+        let token = if repo.provider.eq_ignore_ascii_case("gitlab") {
+            crate::settings::get_gitlab_token_for_host(&repo.host)
+        } else {
+            None
+        };
+        let headers = provider.auth_headers(token.as_deref());
+
         let mut last_error = None;
         for branch in branches {
-            let url = format!(
-                "https://github.com/{}/{}/archive/refs/heads/{}.zip",
-                repo.owner, repo.name, branch
-            );
+            let mut urls = provider.archive_zip_fallback_urls(repo, branch);
+            urls.push(provider.archive_zip_url(repo, branch));
 
-            match self.download_and_extract(&url, &temp_path).await {
-                Ok(_) => {
-                    return Ok((temp_path, branch.to_string()));
-                }
-                Err(e) => {
-                    last_error = Some(e);
-                    continue;
+            for url in urls {
+                match self
+                    .download_and_extract(&url, &temp_path, headers.clone())
+                    .await
+                {
+                    Ok(_) => {
+                        return Ok((temp_path, branch.to_string()));
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "下载仓库 {}/{} 分支 {} 失败 ({}): {}",
+                            repo.owner,
+                            repo.name,
+                            branch,
+                            url,
+                            e
+                        );
+                        last_error = Some(e);
+                    }
                 }
             }
         }
@@ -2242,15 +2386,33 @@ impl SkillService {
     }
 
     /// 下载并解压 ZIP
-    async fn download_and_extract(&self, url: &str, dest: &Path) -> Result<()> {
+    ///
+    /// `headers` 用于注入 provider 特定的鉴权头（如 GitLab 的 `PRIVATE-TOKEN`）。
+    async fn download_and_extract(
+        &self,
+        url: &str,
+        dest: &Path,
+        headers: reqwest::header::HeaderMap,
+    ) -> Result<()> {
         let client = crate::proxy::http_client::get();
-        let response = client.get(url).send().await?;
+        let mut request = client.get(url);
+        if !headers.is_empty() {
+            request = request.headers(headers);
+        }
+        let response = request.send().await.map_err(|e| {
+            anyhow::anyhow!(format_skill_error(
+                "DOWNLOAD_FAILED",
+                &[("detail", &e.to_string())],
+                Some("checkNetwork"),
+            ))
+        })?;
         if !response.status().is_success() {
             let status = response.status().as_u16().to_string();
             return Err(anyhow::anyhow!(format_skill_error(
                 "DOWNLOAD_FAILED",
                 &[("status", &status)],
                 match status.as_str() {
+                    "401" => Some("http401"),
                     "403" => Some("http403"),
                     "404" => Some("http404"),
                     "429" => Some("http429"),
@@ -2260,19 +2422,51 @@ impl SkillService {
         }
 
         let bytes = response.bytes().await?;
+        if !Self::looks_like_zip(&bytes) {
+            return Err(anyhow::anyhow!(format_skill_error(
+                "INVALID_ARCHIVE",
+                &[],
+                Some("checkGitlabToken"),
+            )));
+        }
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(cursor)?;
 
-        let root_name = if !archive.is_empty() {
-            let first_file = archive.by_index(0)?;
-            let name = first_file.name();
-            name.split('/').next().unwrap_or("").to_string()
-        } else {
+        if archive.is_empty() {
             return Err(anyhow::anyhow!(format_skill_error(
                 "EMPTY_ARCHIVE",
                 &[],
                 Some("checkRepoUrl"),
             )));
+        }
+
+        // 自适应顶层目录：扫描所有条目，找到唯一一级目录名作为 root。
+        // - GitHub 归档：`{repo}-{branch}/...`
+        // - GitLab 归档：`{project}-{branch}-{sha}/...`（含 commit sha）
+        // 历史实现是按第一条 entry 直接拿，万一第一条是隐藏文件等会导致 strip_prefix 全部失败，
+        // 这里改成统计所有 entry 的顶层段，取出现次数最多且非空的那个。
+        let root_name: String = {
+            let mut counts: HashMap<String, usize> = HashMap::new();
+            for i in 0..archive.len() {
+                let file = archive.by_index(i)?;
+                let name = file.name();
+                if let Some(top) = name.split('/').next() {
+                    if !top.is_empty() {
+                        *counts.entry(top.to_string()).or_default() += 1;
+                    }
+                }
+            }
+            counts
+                .into_iter()
+                .max_by_key(|(_, c)| *c)
+                .map(|(name, _)| name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(format_skill_error(
+                        "EMPTY_ARCHIVE",
+                        &[],
+                        Some("checkRepoUrl"),
+                    ))
+                })?
         };
 
         // 第一遍：解压普通文件和目录，收集 symlink 条目
@@ -2315,6 +2509,11 @@ impl SkillService {
         Self::resolve_symlinks_in_dir(dest, &symlinks)?;
 
         Ok(())
+    }
+
+    /// ZIP 文件以 `PK` 魔数开头；用于拒绝 GitLab 登录页 HTML 等非归档响应。
+    fn looks_like_zip(bytes: &[u8]) -> bool {
+        bytes.len() >= 2 && bytes[0] == b'P' && bytes[1] == b'K'
     }
 
     /// 递归复制目录
@@ -2647,6 +2846,8 @@ impl SkillService {
                 name,
                 description,
                 directory: install_name.clone(),
+                repo_host: None,
+                repo_provider: None,
                 repo_owner: None,
                 repo_name: None,
                 repo_branch: None,
@@ -2840,6 +3041,8 @@ impl SkillService {
                     key: s.id,
                     name: s.name,
                     directory: s.skill_id.clone(),
+                    repo_host: default_host(),
+                    repo_provider: default_provider(),
                     repo_owner: owner.clone(),
                     repo_name: repo.clone(),
                     repo_branch: "main".to_string(),
@@ -2861,12 +3064,15 @@ impl SkillService {
 
 /// 从 lock 文件信息构建 skill 的 ID、仓库字段和 readme URL
 ///
-/// 返回 (id, repo_owner, repo_name, repo_branch, readme_url)
+/// 返回 (id, repo_host, repo_provider, repo_owner, repo_name, repo_branch, readme_url)
+#[allow(clippy::type_complexity)]
 fn build_repo_info_from_lock(
     lock: &HashMap<String, LockRepoInfo>,
     dir_name: &str,
 ) -> (
     String,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -2879,21 +3085,38 @@ fn build_repo_info_from_lock(
             // 优先使用 lock 文件中的 skillPath，否则回退到 dir_name/SKILL.md
             let fallback = format!("{dir_name}/SKILL.md");
             let doc_path = info.skill_path.as_deref().unwrap_or(&fallback);
-            let url = Some(SkillService::build_skill_doc_url(
-                &info.owner,
-                &info.repo,
+            let lock_repo = SkillRepo {
+                host: info.host.clone(),
+                provider: info.provider.clone(),
+                owner: info.owner.clone(),
+                name: info.repo.clone(),
+                branch: url_branch.clone(),
+                enabled: true,
+            };
+            let url = Some(SkillService::build_skill_doc_url_for_repo(
+                &lock_repo,
                 &url_branch,
                 doc_path,
             ));
             (
                 format!("{}/{}:{dir_name}", info.owner, info.repo),
+                Some(info.host.clone()),
+                Some(info.provider.clone()),
                 Some(info.owner.clone()),
                 Some(info.repo.clone()),
                 branch,
                 url,
             )
         }
-        None => (format!("local:{dir_name}"), None, None, None, None),
+        None => (
+            format!("local:{dir_name}"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
     }
 }
 
@@ -2903,19 +3126,21 @@ fn save_repos_from_lock(
     lock: &HashMap<String, LockRepoInfo>,
     directories: impl Iterator<Item = impl AsRef<str>>,
 ) {
-    let existing_repos: HashSet<(String, String)> = db
+    let existing_repos: HashSet<(String, String, String)> = db
         .get_skill_repos()
         .unwrap_or_default()
         .into_iter()
-        .map(|r| (r.owner, r.name))
+        .map(|r| (r.host, r.owner, r.name))
         .collect();
     let mut added = HashSet::new();
 
     for dir_name in directories {
         if let Some(info) = lock.get(dir_name.as_ref()) {
-            let key = (info.owner.clone(), info.repo.clone());
+            let key = (info.host.clone(), info.owner.clone(), info.repo.clone());
             if !existing_repos.contains(&key) && added.insert(key) {
                 let skill_repo = SkillRepo {
+                    host: info.host.clone(),
+                    provider: info.provider.clone(),
                     owner: info.owner.clone(),
                     name: info.repo.clone(),
                     // 未知分支时使用 HEAD 语义，后续下载会回退到 main/master。
@@ -2923,10 +3148,17 @@ fn save_repos_from_lock(
                     enabled: true,
                 };
                 if let Err(e) = db.save_skill_repo(&skill_repo) {
-                    log::warn!("保存 skill 仓库 {}/{} 失败: {}", info.owner, info.repo, e);
+                    log::warn!(
+                        "保存 skill 仓库 {}/{}/{} 失败: {}",
+                        info.host,
+                        info.owner,
+                        info.repo,
+                        e
+                    );
                 } else {
                     log::info!(
-                        "从 agents lock 文件发现并添加仓库: {}/{} ({})",
+                        "从 agents lock 文件发现并添加仓库: {}/{}/{} ({})",
+                        info.host,
                         info.owner,
                         info.repo,
                         skill_repo.branch
@@ -3024,7 +3256,7 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
 
         let (name, description) = SkillService::read_skill_name_desc(&skill_md, &directory);
 
-        let (id, repo_owner, repo_name, repo_branch, readme_url) =
+        let (id, repo_host, repo_provider, repo_owner, repo_name, repo_branch, readme_url) =
             build_repo_info_from_lock(&agents_lock, &directory);
 
         let content_hash = SkillService::compute_dir_hash(&ssot_path).ok();
@@ -3034,6 +3266,8 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
             name,
             description,
             directory,
+            repo_host,
+            repo_provider,
             repo_owner,
             repo_name,
             repo_branch,

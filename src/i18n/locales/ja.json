@@ -580,6 +580,22 @@
       "migrationSuccess": "{{count}} 個のスキルを移行しました",
       "migrationPartial": "{{migrated}} 個のスキルを移行、{{errors}} 個のエラー。詳細はログを確認してください。"
     },
+    "gitlabTokens": {
+      "title": "GitLab Personal Access Token",
+      "description": "自前 GitLab インスタンス用の PAT を設定します。スキル取得時に PRIVATE-TOKEN ヘッダーとして送信され、ホストごとに保存されます。",
+      "empty": "GitLab Token が未設定です。下のボタンから追加してください。",
+      "addRow": "Token を追加",
+      "hostLabel": "GitLab ホスト",
+      "tokenLabel": "Token",
+      "tokenPlaceholder": "Personal Access Token を貼り付け",
+      "hostRequired": "GitLab ホストを入力してください",
+      "tokenRequired": "有効な Token を入力してください",
+      "saveSuccess": "{{host}} の Token を保存しました",
+      "saveFailed": "Token の保存に失敗しました",
+      "removeSuccess": "{{host}} の Token を削除しました",
+      "removeFailed": "Token の削除に失敗しました",
+      "loadFailed": "GitLab Token の読み込みに失敗しました"
+    },
     "skillSync": {
       "title": "スキル同期方式",
       "description": "スキルファイルの同期方法を選択",
@@ -1879,10 +1895,12 @@
       "skillDirNotFound": "スキルディレクトリが見つかりません: {{path}}",
       "directoryConflict": "スキルディレクトリ '{{directory}}' は既に {{existing_repo}} で使用されています。{{new_repo}} からインストールできません",
       "emptyArchive": "ダウンロードしたアーカイブが空です",
+      "invalidArchive": "ダウンロード内容が有効な ZIP ではありません（GitLab ログインページの可能性）。Token 権限と host 設定を確認してください。",
       "downloadFailed": "ダウンロードに失敗しました: HTTP {{status}}",
       "allBranchesFailed": "すべてのブランチで失敗しました。試行: {{branches}}",
       "httpError": "HTTP エラー {{status}}",
-      "http403": "GitHub へのアクセスが制限されています（レート制限の可能性）",
+      "http401": "Git リポジトリの認証に失敗しました。設定でこのホストの GitLab Token を確認してください",
+      "http403": "Git リポジトリへのアクセスが制限されています（Token の権限不足またはレート制限の可能性）",
       "http404": "リポジトリまたはブランチが見つかりません。URL を確認してください",
       "http429": "リクエストが多すぎます。時間をおいて再試行してください",
       "parseMetadataFailed": "スキルメタデータの解析に失敗しました",
@@ -1899,14 +1917,15 @@
         "checkDiskSpace": "ディスク容量を確認してください",
         "checkPermission": "ディレクトリの権限を確認してください",
         "uninstallFirst": "同名のスキルを先にアンインストールしてください",
-        "checkZipContent": "ZIP ファイルに有効なスキルディレクトリ（SKILL.md を含む）が含まれていることを確認してください"
+        "checkZipContent": "ZIP ファイルに有効なスキルディレクトリ（SKILL.md を含む）が含まれていることを確認してください",
+        "checkGitlabToken": "設定画面でこの GitLab ホスト用の Personal Access Token を設定してください"
       }
     },
     "repo": {
       "title": "スキルリポジトリを管理",
-      "description": "GitHub のスキルリポジトリソースを追加または削除します",
+      "description": "Git のスキルリポジトリソースを追加または削除します（GitHub と自前 GitLab に対応）",
       "url": "リポジトリ URL",
-      "urlPlaceholder": "owner/name または https://github.com/owner/name",
+      "urlPlaceholder": "owner/name または https://gitlab.example.com/group/sub/repo",
       "branch": "ブランチ",
       "branchPlaceholder": "main",
       "path": "スキルパス",

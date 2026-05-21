@@ -28,6 +28,8 @@ export interface InstalledSkill {
   name: string;
   description?: string;
   directory: string;
+  repoHost?: string;
+  repoProvider?: string;
   repoOwner?: string;
   repoName?: string;
   repoBranch?: string;
@@ -56,6 +58,8 @@ export interface DiscoverableSkill {
   description: string;
   directory: string;
   readmeUrl?: string;
+  repoHost?: string;
+  repoProvider?: string;
   repoOwner: string;
   repoName: string;
   repoBranch: string;
@@ -109,6 +113,8 @@ export interface SkillsShDiscoverableSkill {
   key: string;
   name: string;
   directory: string;
+  repoHost?: string;
+  repoProvider?: string;
   repoOwner: string;
   repoName: string;
   repoBranch: string;
@@ -125,10 +131,18 @@ export interface SkillsShSearchResult {
 
 /** 仓库配置 */
 export interface SkillRepo {
+  host: string;
+  provider: "github" | "gitlab";
   owner: string;
   name: string;
   branch: string;
   enabled: boolean;
+}
+
+/** GitLab Token 配置（按 host 隔离）。后端返回时 token 字段已被掩码（"********"）。 */
+export interface GitlabTokenEntry {
+  host: string;
+  token: string;
 }
 
 // ========== API ==========
@@ -262,8 +276,29 @@ export const skillsApi = {
   },
 
   /** 删除仓库 */
-  async removeRepo(owner: string, name: string): Promise<boolean> {
-    return await invoke("remove_skill_repo", { owner, name });
+  async removeRepo(
+    owner: string,
+    name: string,
+    host?: string,
+  ): Promise<boolean> {
+    return await invoke("remove_skill_repo", { owner, name, host });
+  },
+
+  // ========== GitLab Token ==========
+
+  /** 获取所有 GitLab Token（已掩码） */
+  async getGitlabTokens(): Promise<Record<string, string>> {
+    return await invoke("get_gitlab_tokens");
+  },
+
+  /** 设置某个 host 的 GitLab Token */
+  async setGitlabToken(host: string, token: string): Promise<boolean> {
+    return await invoke("set_gitlab_token", { host, token });
+  },
+
+  /** 删除某个 host 的 GitLab Token */
+  async removeGitlabToken(host: string): Promise<boolean> {
+    return await invoke("remove_gitlab_token", { host });
   },
 
   // ========== ZIP 安装 ==========

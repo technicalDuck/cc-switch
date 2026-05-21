@@ -322,11 +322,15 @@ fn parse_skill_deeplink(
         .ok_or_else(|| AppError::InvalidInput("Missing 'repo' parameter for skill".to_string()))?
         .clone();
 
-    // Validate repo format (should be "owner/name")
-    if !repo.contains('/') || repo.split('/').count() != 2 {
-        return Err(AppError::InvalidInput(format!(
-            "Invalid repo format: expected 'owner/name', got '{repo}'"
-        )));
+    // 同时接受两种形式：
+    // - 旧 GitHub 兼容：`owner/name`
+    // - 新通用形式：完整 URL（如 `https://gitlab.corp.com/dept/team/proj`），支持 GitLab 嵌套 group
+    // 真正的解析在 import_skill_from_deeplink 中通过 detect_from_url 完成，这里只做最低限度的非空校验。
+    let trimmed = repo.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput(
+            "Empty repo: expected 'owner/name' or full Git URL".to_string(),
+        ));
     }
 
     let directory = params.get("directory").cloned();
